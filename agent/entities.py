@@ -1,0 +1,30 @@
+from typing import Any
+from openai.types.chat import ChatCompletion
+
+class LLMResponse:
+    role: str
+    content: str
+    reasoning_content: str
+    tools_call_args: list[dict[str, Any]]
+    tools_call_name: list[str]
+    tools_call_ids: list[str]
+    is_chunk: bool
+
+    raw_response: ChatCompletion
+
+    def __init__(self, response: ChatCompletion|None = None,
+                 role: str|None = None,
+                 content: str|None = None,
+                 reasoning_content: str|None = None,
+                 tools_call_args: list[dict[str, Any]]|None = None,
+                 tools_call_name: list[str]|None = None,
+                 tools_call_ids: list[str]|None = None,
+                 is_chunk: bool = False):
+        self.raw_response = response
+        self.role = role
+        self.reasoning_content = reasoning_content
+        self.content = content
+        self.tools_call_args = tools_call_args
+        self.tools_call_name = tools_call_name
+        self.tools_call_ids = tools_call_ids
+        self.is_chunk = is_chunk
