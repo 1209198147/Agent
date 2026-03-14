@@ -32,22 +32,15 @@ class ToolCall:
 @dataclass
 class AIMessage(Message):
     role: Literal["assistant"] = "assistant"
-    tool_calls: list[ToolCall] = field(default=None)
-
-    def to_dict(self) -> dict[str, Any]:
-        d = super().to_dict()
-        if self.tool_calls:
-            d["tool_calls"] = [tool_call.to_dict() for tool_call in self.tool_calls]
-        return d
-
-@dataclass
-class AIReasoningMessage(AIMessage):
     reasoning_content: str = field(default=None)
+    tool_calls: list[ToolCall] = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         if self.reasoning_content:
             d["reasoning_content"] = self.reasoning_content
+        if self.tool_calls:
+            d["tool_calls"] = [tool_call.to_dict() for tool_call in self.tool_calls]
         return d
 
 @dataclass
