@@ -1,7 +1,7 @@
 from typing import Any
 
 from agent.entities import LLMResponse
-from agent.tool_executor import ToolCallsResult
+from agent.conversation import ToolCall
 
 
 class AgentContext:
@@ -11,6 +11,7 @@ class AgentContext:
             extra = {}
         self.extra = extra
         self.llm_response: LLMResponse|None = None
+        self.tool_calls: list[ToolCall]|None = None
         self.results: list[LLMResponse] = []
         self.system_prompt = ''
         self.user_prompt = ''

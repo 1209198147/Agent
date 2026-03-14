@@ -130,15 +130,15 @@ class ToolCallAgent(ReActAgent):
         self.chat_history.add_message(AIMessage(content=llm_response.content,
                                                 reasoning_content=llm_response.reasoning_content,
                                                 tool_calls=llm_response.get_tools_call()))
+        context.tool_calls = llm_response.get_tools_call()
         context.results.append(llm_response)
 
     def _act(self, context: AgentContext):
         """Acting阶段：处理工具调用"""
-        llm_response = context.llm_response
+        tool_calls = context.tool_calls
 
-        if llm_response.tools_call_ids:
+        if tool_calls:
             # 有工具调用
-            tool_calls = llm_response.get_tools_call()
             for tool_call in tool_calls:
                 # 检查AI是否调用了done工具，如果调用了则代表任务已经完成
                 if tool_call.tool_name == DONE:
@@ -201,21 +201,20 @@ class StreamToolCallAgent(ReActAgent):
             tool_calls=llm_response.get_tools_call()
         ))
         context.llm_response = llm_response
+        context.tool_calls = llm_response.get_tools_call()
         context.results.append(llm_response)
 
     async def _act_async(self, context: AgentContext):
         """异步Acting阶段：处理工具调用"""
-        llm_response = context.llm_response
-
-        if llm_response.tools_call_ids:
+        tool_calls = context.tool_calls
+        if tool_calls:
             # 有工具调用
-            tool_calls = llm_response.get_tools_call()
             for tool_call in tool_calls:
                 # 检查AI是否调用了done工具，如果调用了则代表任务已经完成
                 if tool_call.tool_name == DONE:
                     self.done()
-            # 执行工具调用（使用线程池执行同步方法）
-            tool_calls_result = await asyncio.to_thread(self.tool_executor.call, tool_calls)
+            # 执行工具调用
+            tool_calls_result = self.tool_executor.call(tool_calls)
             if context.llm_response.reasoning_content:
                 tool_calls_result.tool_call_info.reasoning_content = context.llm_response.reasoning_content
             context.tool_calls_result = tool_calls_result

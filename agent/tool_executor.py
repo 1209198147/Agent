@@ -30,8 +30,8 @@ class ToolExecutor:
     def _call(self, tool_call_info: ToolCall) -> ToolCallResult:
         tool = tool_manager.get_tool(tool_call_info.tool_name)
         args = tool_call_info.arguments
-        result = tool.call(**args)
         try:
+            result = tool.call(**args)
             return ToolCallResult(tool_call_id=tool_call_info.tool_call_id, content=result)
         except Exception as e:
             return ToolCallResult(tool_call_id=tool_call_info.tool_call_id, content=str(e))
