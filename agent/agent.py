@@ -124,7 +124,7 @@ class ToolCallAgent(ReActAgent):
         context.llm_response = llm_response
 
         # 添加用户消息（只在第一轮添加）
-        if context.user_prompt and not context.result:
+        if context.user_prompt and not context.results:
             self.chat_history.add_message(UserMessage(content=context.user_prompt))
             context.user_prompt = ''  # 清空，避免重复添加
         self.chat_history.add_message(AIMessage(content=llm_response.content,
@@ -178,7 +178,7 @@ class StreamToolCallAgent(ReActAgent):
         最后一个chunk包含完整的响应信息
         """
         # 添加用户消息（只在第一轮添加）
-        if context.user_prompt and not context.result:
+        if context.user_prompt and not context.results:
             self.chat_history.add_message(UserMessage(content=context.user_prompt))
             context.user_prompt = ''  # 清空，避免重复添加
 
