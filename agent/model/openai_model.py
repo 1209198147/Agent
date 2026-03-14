@@ -145,7 +145,7 @@ class OpenAIChatModel(ChatModel):
         llm_response = await self._parse_response(final_completion)
         yield llm_response
 
-    async def stream_chat(self,
+    async def chat_stream(self,
                           prompt: str = None,
                           system_prompt: str = None,
                           context: Conversation = None,
