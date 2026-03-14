@@ -193,8 +193,6 @@ class StreamToolCallAgent(ReActAgent):
         async for chunk in stream:
             if not chunk.is_chunk:
                 llm_response = chunk
-            # 直接产出每个chunk，标记为分块
-            chunk.is_chunk = True
             yield chunk
 
         self.chat_history.add_message(AIMessage(
