@@ -72,15 +72,28 @@ class DiscardOldestStrategy(DiscardStarStrategy):
             self._discard_oldest_message(history)
 
     def _discard_oldest_message(self, history: list[Message]):
+        """丢掉一个完整的对话消息，如果包括工具调用，对应的工具调用结果也要丢弃"""
         pop_list = []
-        pop_count = 0
-        for idx, message in enumerate(history):
-            if message.role == "system":
+        idx = 0
+        while True:
+            message = history[idx]
+            _break = True
+            if isinstance(message, SystemMessage):
                 continue
-            pop_list.append(idx)
-            pop_count += 1
-            if pop_count == 2:
+            elif isinstance(message, AIMessage):
+                pop_list.append(idx)
+                if message.tool_calls:
+                    for _ in message.tool_calls:
+                        idx += 1
+                        pop_list.append(idx)
+            elif isinstance(message, UserMessage):
+                pop_list.append(idx)
+                _break = False
+
+            if len(pop_list) >=2 and _break:
                 break
+            idx += 1
+
         for idx in reversed(pop_list):
             history.pop(idx)
 
