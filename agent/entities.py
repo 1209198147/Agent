@@ -1,6 +1,9 @@
 from typing import Any
 from openai.types.chat import ChatCompletion
 
+from agent.conversation import ToolCall
+
+
 class LLMResponse:
     role: str
     content: str
@@ -28,3 +31,13 @@ class LLMResponse:
         self.tools_call_name = tools_call_name
         self.tools_call_ids = tools_call_ids
         self.is_chunk = is_chunk
+
+    def get_tools_call(self) -> list[ToolCall]:
+        tools_call = []
+        for idx in range(len(self.tools_call_ids)):
+            tools_call.append(ToolCall(
+                tool_call_id=self.tools_call_ids[idx],
+                tool_name=self.tools_call_name[idx],
+                arguments=self.tools_call_args[idx]
+            ))
+        return tools_call
