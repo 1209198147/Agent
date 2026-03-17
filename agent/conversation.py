@@ -33,6 +33,7 @@ class ToolCall:
 class AIMessage(Message):
     role: Literal["assistant"] = "assistant"
     reasoning_content: str = field(default=None)
+    reasoning_signature: str = field(default=None)
     tool_calls: list[ToolCall] = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
