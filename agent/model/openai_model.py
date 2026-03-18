@@ -11,6 +11,9 @@ from agent.tool import ToolSet
 from agent.conversation import Conversation
 from agent.tool_executor import ToolCallsResult
 
+from agent.utils.file import file_to_base64, download_to_base64
+
+
 class OpenAIChatModel(ChatModel):
     def __init__(self, config: dict):
         super().__init__(config)
@@ -68,6 +71,7 @@ class OpenAIChatModel(ChatModel):
 
     async def _build_chat_payload(self,
                             prompt: str,
+                            img_urls: list[str],
                             system_prompt: str,
                             context: Conversation,
                             tool_call_result: ToolCallsResult|list[ToolCallsResult],
@@ -80,8 +84,38 @@ class OpenAIChatModel(ChatModel):
         if system_prompt:
             messages.insert(0, {'role': 'system', 'content': system_prompt})
 
-        if prompt:
+
+        content_blocks = None
+        if img_urls:
+            content_blocks = []
+
+        if content_blocks is None and prompt:
             messages.append({'role': 'user', 'content': prompt})
+        elif content_blocks is not None:
+            if prompt:
+                content_blocks.append({'type': 'text', 'text': prompt})
+            else:
+                content_blocks.append({'type': 'text', 'text': '[图片]'})
+
+
+        if img_urls:
+            for img_url in img_urls:
+                if img_url.startswith("http"):
+                    _, img_base64, _ = await download_to_base64(url=img_url, encoding="utf-8", ssl_verify=False)
+                    content_blocks.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}})
+                elif img_url.startswith("file:///"):
+                    img_url = img_url.replace("file:///", "")
+                    img_base64 = file_to_base64(img_url, "utf-8")
+                    content_blocks.append({'type': 'image_url', 'image_url': {'url': f"data:image/jpeg;base64,{img_base64}"}})
+                elif img_url.startswith("base64://"):
+                    img_url = img_url.replace("base64://", "")
+                    content_blocks.append({'type': 'image_url', 'image_url': {'url': f"data:image/jpeg;base64,{img_url}"}})
+                else:
+                    img_base64 = file_to_base64(img_url, "utf-8")
+                    content_blocks.append({'type': 'image_url', 'image_url': {'url': f"data:image/jpeg;base64,{img_base64}"}})
+
+        if content_blocks:
+            messages.append({'role': 'user', 'content': content_blocks})
 
         if tool_call_result:
             if isinstance(tool_call_result, ToolCallsResult):
@@ -106,12 +140,13 @@ class OpenAIChatModel(ChatModel):
 
     async def chat(self,
              prompt: str = None,
+             img_urls: list[str] = None,
              system_prompt: str = None,
              context: Conversation = None,
              tools: ToolSet = None,
              tool_call_result: ToolCallsResult|list[ToolCallsResult] = None,
              model: str = None):
-        payload = await self._build_chat_payload(prompt, system_prompt, context, tool_call_result, model)
+        payload = await self._build_chat_payload(prompt, img_urls, system_prompt, context, tool_call_result, model)
 
         return await self._query(payload, tools)
 
@@ -147,12 +182,13 @@ class OpenAIChatModel(ChatModel):
 
     async def chat_stream(self,
                           prompt: str = None,
+                          img_urls: list[str] = None,
                           system_prompt: str = None,
                           context: Conversation = None,
                           tools: ToolSet = None,
                           tool_call_result: ToolCallsResult|list[ToolCallsResult] = None,
                           model: str = None) -> AsyncGenerator[LLMResponse, None]:
-        payload = await self._build_chat_payload(prompt, system_prompt, context, tool_call_result, model)
+        payload = await self._build_chat_payload(prompt, img_urls, system_prompt, context, tool_call_result, model)
 
         async for response in self._query_stream(payload, tools):
             yield response

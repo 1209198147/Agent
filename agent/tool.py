@@ -23,6 +23,7 @@ class Tool:
         ...
 
     def to_dict(self) -> dict[str, str|dict[str, Any]]:
+        """转换为 OpenAI 模型所需的格式。"""
         return {
             'type': 'function',
             'function': {
@@ -30,6 +31,14 @@ class Tool:
                 'description': self.description,
                 'parameters': self.parameters,
             }
+        }
+
+    def to_anthropic_dict(self) -> dict[str, str|dict[str, Any]]:
+        """转换为 Anthropic 模型所需的格式。"""
+        return {
+            'name': self.name,
+            'description': self.description,
+            'input_schema': self.parameters,
         }
 
 class ToolSet:
@@ -56,4 +65,9 @@ class ToolSet:
         self.tools.append(tool)
 
     def to_openai_model(self) -> list[dict[str, str|dict[str, Any]]]:
+        """转换为 OpenAI 模型所需的格式。"""
         return [tool.to_dict() for tool in self.tools]
+
+    def to_anthropic_model(self) -> list[dict[str, str|dict[str, Any]]]:
+        """转换为 Anthropic 模型所需的格式。"""
+        return [tool.to_anthropic_dict() for tool in self.tools]
