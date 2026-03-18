@@ -14,6 +14,7 @@ class ChatModel:
 
     async def chat(self,
                    prompt: str = None,
+                   img_urls: list[str] = None,
                    system_prompt: str = None,
                    context: Conversation = None,
                    tools: ToolSet = None,
@@ -23,6 +24,7 @@ class ChatModel:
 
     async def chat_stream(self,
                           prompt: str = None,
+                          img_urls: list[str] = None,
                           system_prompt: str = None,
                           context: Conversation = None,
                           tools: ToolSet = None,

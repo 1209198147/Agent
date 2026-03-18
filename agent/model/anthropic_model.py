@@ -2,13 +2,13 @@ import json
 from typing import AsyncGenerator
 
 from anthropic import AsyncAnthropic
-from anthropic.types import Message
 
 from agent.chat_model import ChatModel
-from agent.conversation import Conversation, AIMessage, UserMessage, ToolCallResult
+from agent.conversation import Conversation, AIMessage, UserMessage, ToolCallResult, ImageContentPart, TextContentPart
 from agent.entities import LLMResponse
 from agent.tool import ToolSet
 from agent.tool_executor import ToolCallsResult
+from agent.utils.file import download_to_base64, file_to_base64, detect_mime_type
 
 
 class AnthropicModel(ChatModel):
@@ -27,12 +27,33 @@ class AnthropicModel(ChatModel):
         messages = []
         for message in context.get_messages():
             if isinstance(message, UserMessage):
-                messages.append({"role": "user", "content": [
-                    {
-                        "type": "text",
-                        "text": message.content
-                    }
-                ]})
+                if isinstance(message.content, str):
+                    messages.append({"role": "user", "content": [
+                        {
+                            "type": "text",
+                            "text": message.content
+                        }
+                    ]})
+                elif isinstance(message.content, list):
+                    content_blocks = []
+                    for part in message.content:
+                        if isinstance(part, TextContentPart):
+                            content_blocks.append({
+                                "type": "text",
+                                "text": part.text
+                            })
+                        elif isinstance(part, ImageContentPart):
+                            img_base64 = part.img_url.url
+                            img_base64 = img_base64[img_base64.find(",")+1:]
+                            content_blocks.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": detect_mime_type(img_base64),
+                                    "data": img_base64
+                                }
+                            })
+                    messages.append({"role": "user", "content": content_blocks})
             elif isinstance(message, AIMessage):
                 content = []
                 if message.content:
@@ -71,6 +92,7 @@ class AnthropicModel(ChatModel):
 
     async def _build_chat_payload(self,
                            prompt: str = None,
+                           img_urls: list[str] = None,
                            system_prompt: str = None,
                            context: Conversation = None,
                            tool_call_result: ToolCallsResult|list[ToolCallsResult] = None,
@@ -81,13 +103,58 @@ class AnthropicModel(ChatModel):
             context = Conversation()
         messages = self._context_to_messages(context)
 
+        content_blocks = []
         if prompt:
-            messages.append({"role": "user", "content": [
-                {
+            content_blocks.append({
                     "type": "text",
                     "text": prompt
-                }
-            ]})
+                })
+        if img_urls:
+            for img_url in img_urls:
+                if img_url.startswith("http"):
+                    _, img_base64, _ = await download_to_base64(url=img_url, encoding="utf-8", ssl_verify=False)
+                    content_blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": detect_mime_type(img_base64),
+                            "data": img_base64
+                        }
+                    })
+                elif img_url.startswith("file:///"):
+                    img_url = img_url.replace("file:///", "")
+                    img_base64 = file_to_base64(img_url, "utf-8")
+                    content_blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": detect_mime_type(img_base64),
+                            "data": img_base64
+                        }
+                    })
+                elif img_url.startswith("base64://"):
+                    img_url = img_url.replace("base64://", "")
+                    content_blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": detect_mime_type(img_url),
+                            "data": img_url
+                        }
+                    })
+                else:
+                    img_base64 = file_to_base64(img_url, "utf-8")
+                    content_blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": detect_mime_type(img_base64),
+                            "data": img_base64
+                        }
+                    })
+
+
+        messages.append({"role": "user", "content": content_blocks})
 
         if tool_call_result:
             if isinstance(tool_call_result, ToolCallsResult):
@@ -119,7 +186,8 @@ class AnthropicModel(ChatModel):
             if content_block.type == "text":
                 llm_response.content = content_block.text
             if content_block.type == "thinking":
-                llm_response.tool_calls = content_block.thinking
+                llm_response.reasoning_content = content_block.thinking
+                llm_response.reasoning_signature = content_block.signature
             if content_block.type == "tool_use":
                 if not llm_response.tools_call_name:
                     llm_response.tools_call_name = []
@@ -135,12 +203,13 @@ class AnthropicModel(ChatModel):
 
     async def chat(self,
                    prompt: str = None,
+                   img_urls: list[str] = None,
                    system_prompt: str = None,
                    context: Conversation = None,
                    tools: ToolSet = None,
                    tool_call_result: ToolCallsResult|list[ToolCallsResult] = None,
                    model: str = None):
-        payload = await self._build_chat_payload(prompt, system_prompt, context, tool_call_result, model)
+        payload = await self._build_chat_payload(prompt, img_urls, system_prompt, context, tool_call_result, model)
         return await self._query(payload, tools)
 
 
@@ -228,12 +297,13 @@ class AnthropicModel(ChatModel):
 
     async def chat_stream(self,
                           prompt: str = None,
+                          img_urls: list[str] = None,
                           system_prompt: str = None,
                           context: Conversation = None,
                           tools: ToolSet = None,
                           tool_call_result: ToolCallsResult|list[ToolCallsResult] = None,
                           model: str = None):
-        payload = await self._build_chat_payload(prompt, system_prompt, context, tool_call_result, model)
+        payload = await self._build_chat_payload(prompt, img_urls, system_prompt, context, tool_call_result, model)
         stream = self._query_stream(payload, tools)
         async for chunk in stream:
             yield chunk
