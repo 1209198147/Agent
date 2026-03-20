@@ -15,6 +15,7 @@ class AgentContext:
         self.results: list[LLMResponse] = []
         self.system_prompt = ''
         self.user_prompt = ''
+        self.img_urls: list[str] = []
 
     def clear(self):
         self.extra = {}

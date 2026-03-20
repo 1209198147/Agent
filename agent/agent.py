@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import AsyncGenerator
 
@@ -17,6 +18,15 @@ class AgentStatus(Enum):
     STOP = 2
     DONE = 3
     ERROR = 4
+
+@dataclass
+class AgentResponse:
+    """Agent响应基类"""
+    content: str|None = field(default=None)
+    reasoning_content: str|None = field(default=None)
+    tool_calls: list[ToolCall]|None = field(default=None)
+    tool_calls_result: list[ToolCallResult]|None= field(default=None)
+    is_chunk: bool = field(default=False)
 
 class Agent:
     """Agent基类，定义智能体的基本行为"""
@@ -76,26 +86,32 @@ class ReActAgent(Agent):
                  **kwargs):
         super().__init__(name, model, model_name, chat_history)
 
-    def _step(self, context: AgentContext):
-        self._reason(context)
-        self._act(context)
-
-    def run(self, context: AgentContext, max_steps: int=20) -> list[LLMResponse]:
+    async def run(self, context: AgentContext, max_steps: int=20) -> None|AsyncGenerator[AgentResponse, None]:
         """执行ReAct循环"""
         self.start()
         cur_step = 0
         while not self.is_stop() and cur_step < max_steps:
-            self._step(context)
+            reason = self._reason(context)
+            if isinstance(reason, AsyncGenerator):
+                async for response in reason:
+                    yield response
+            else:
+                yield reason
+            act = self._act(context)
+            if isinstance(act, AsyncGenerator):
+                async for response in act:
+                    yield response
+            else:
+                yield act
             cur_step += 1
             if self.is_stop() or self.is_done():
                 break
-        return context.results
 
-    def _reason(self, context: AgentContext):
+    async def _reason(self, context: AgentContext) -> None|AsyncGenerator[AgentResponse, None]:
         """Reasoning阶段"""
         ...
 
-    def _act(self, context: AgentContext):
+    async def _act(self, context: AgentContext) -> None|AsyncGenerator[AgentResponse, None]:
         """Acting阶段"""
         ...
 
@@ -113,27 +129,31 @@ class ToolCallAgent(ReActAgent):
         self.tools = tools
         self.tool_executor = tool_executor
 
-    def _reason(self, context: AgentContext):
+    async def _reason(self, context: AgentContext) -> None|AsyncGenerator[AgentResponse, None]:
         """Reasoning阶段：调用LLM获取响应"""
-        llm_response: LLMResponse = asyncio.run(self.model.chat(
+        # 添加用户消息（只在第一轮添加）
+        if context.user_prompt and not context.results:
+            self.chat_history.add_message(Conversation.assemble_user_message(context.user_prompt, context.img_urls))
+            context.user_prompt = ''  # 清空，避免重复添加
+        llm_response: LLMResponse = await self.model.chat(
             system_prompt=context.system_prompt,
             context=self.chat_history,
             tools=self.tools if isinstance(self.tools, ToolSet) else ToolSet(self.tools),
             model=self.model_name
-        ))
+        )
         context.llm_response = llm_response
 
-        # 添加用户消息（只在第一轮添加）
-        if context.user_prompt and not context.results:
-            self.chat_history.add_message(UserMessage(content=context.user_prompt))
-            context.user_prompt = ''  # 清空，避免重复添加
         self.chat_history.add_message(AIMessage(content=llm_response.content,
                                                 reasoning_content=llm_response.reasoning_content,
                                                 tool_calls=llm_response.get_tools_call()))
         context.tool_calls = llm_response.get_tools_call()
         context.results.append(llm_response)
+        yield AgentResponse(content=llm_response.content,
+                            reasoning_content=llm_response.reasoning_content,
+                            tool_calls=context.tool_calls,
+                            is_chunk=llm_response.is_chunk)
 
-    def _act(self, context: AgentContext):
+    async def _act(self, context: AgentContext) -> None|AsyncGenerator[AgentResponse, None]:
         """Acting阶段：处理工具调用"""
         tool_calls = context.tool_calls
 
@@ -144,12 +164,13 @@ class ToolCallAgent(ReActAgent):
                 if tool_call.tool_name == DONE:
                     self.done()
             # 执行工具调用
-            tool_calls_result = self.tool_executor.call(tool_calls)
+            tool_calls_result = self.tool_executor.call_batch(tool_calls)
             if context.llm_response.reasoning_content:
                 tool_calls_result.tool_call_info.reasoning_content = context.llm_response.reasoning_content
             context.tool_calls_result = tool_calls_result
             for tool_call_result in tool_calls_result.tool_call_results:
                 self.chat_history.add_message(tool_call_result)
+            yield AgentResponse(tool_calls_result=tool_calls_result.tool_call_results)
         else:
             # 如果没有工具调用，认为ai已经完成了任务
             self.done()
@@ -171,7 +192,7 @@ class StreamToolCallAgent(ReActAgent):
         self.tools = tools
         self.tool_executor = tool_executor
 
-    async def _reason_stream(self, context: AgentContext):
+    async def _reason_stream(self, context: AgentContext) -> AsyncGenerator[AgentResponse, None]:
         """
         流式Reasoning阶段：调用LLM获取流式响应
         使用AsyncGenerator逐步产出响应，实现实时输出
@@ -191,9 +212,13 @@ class StreamToolCallAgent(ReActAgent):
 
         llm_response = None
         async for chunk in stream:
+            response = AgentResponse(content=chunk.content,
+                                     reasoning_content=chunk.reasoning_content, is_chunk=True)
             if not chunk.is_chunk:
                 llm_response = chunk
-            yield chunk
+                response.tool_calls = chunk.get_tools_call()
+                response.is_chunk = False
+            yield response
 
         self.chat_history.add_message(AIMessage(
             content=llm_response.content,
@@ -204,7 +229,7 @@ class StreamToolCallAgent(ReActAgent):
         context.tool_calls = llm_response.get_tools_call()
         context.results.append(llm_response)
 
-    async def _act_async(self, context: AgentContext):
+    async def _act_async(self, context: AgentContext) -> AsyncGenerator[AgentResponse, None]:
         """异步Acting阶段：处理工具调用"""
         tool_calls = context.tool_calls
         if tool_calls:
@@ -213,18 +238,15 @@ class StreamToolCallAgent(ReActAgent):
                 # 检查AI是否调用了done工具，如果调用了则代表任务已经完成
                 if tool_call.tool_name == DONE:
                     self.done()
-            # 执行工具调用
-            tool_calls_result = self.tool_executor.call(tool_calls)
-            if context.llm_response.reasoning_content:
-                tool_calls_result.tool_call_info.reasoning_content = context.llm_response.reasoning_content
-            context.tool_calls_result = tool_calls_result
-            for tool_call_result in tool_calls_result.tool_call_results:
+                    continue
+                tool_call_result = self.tool_executor.call(tool_call)
                 self.chat_history.add_message(tool_call_result)
+                yield AgentResponse(tool_calls_result=[tool_call_result])
         else:
             # 如果没有工具调用，认为ai已经完成了任务
             self.done()
 
-    async def run_stream(self, context: AgentContext, max_steps: int = 20) -> AsyncGenerator[LLMResponse, None]:
+    async def run_stream(self, context: AgentContext, max_steps: int = 20) -> AsyncGenerator[AgentResponse, None]:
         """
         流式执行ReAct循环
         """
@@ -236,7 +258,8 @@ class StreamToolCallAgent(ReActAgent):
                 yield chunk
 
             # 执行acting阶段
-            await self._act_async(context)
+            async for chunk in self._act_async(context):
+                yield chunk
 
             cur_step += 1
             if self.is_stop() or self.is_done():

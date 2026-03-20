@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import asyncio
 import json
 from typing import Any, Literal, ClassVar
 from dataclasses import dataclass, field
@@ -189,7 +191,7 @@ class Conversation:
         return self.messages
 
     @classmethod
-    async def assemble_user_message(cls,
+    def assemble_user_message(cls,
                                     prompt: str,
                                     img_urls: list[str]) -> UserMessage:
         content_blocks = []
@@ -201,7 +203,7 @@ class Conversation:
         if img_urls:
             for img_url in img_urls:
                 if img_url.startswith("http"):
-                    _, img_base64, _ = await download_to_base64(url=img_url, encoding="utf-8", ssl_verify=False)
+                    _, img_base64, _ = asyncio.run(download_to_base64(url=img_url, encoding="utf-8", ssl_verify=False))
                     content_blocks.append(ImageContentPart(url=f"data:image/jpeg;base64,{img_base64}"))
                 elif img_url.startswith("file:///"):
                     img_url = img_url.replace("file:///", "")

@@ -57,12 +57,12 @@ class ToolCallsResult:
 
 class ToolExecutor:
     """工具执行器"""
-    def call(self, tool_calls: list[ToolCall]) -> ToolCallsResult:
-        tool_call_results = [self._call(tool_call) for tool_call in tool_calls]
+    def call_batch(self, tool_calls: list[ToolCall]) -> ToolCallsResult:
+        tool_call_results = [self.call(tool_call) for tool_call in tool_calls]
         tool_call_info = AIMessage(tool_calls=tool_calls)
         return ToolCallsResult(tool_call_info=tool_call_info, tool_call_results=tool_call_results)
 
-    def _call(self, tool_call_info: ToolCall) -> ToolCallResult:
+    def call(self, tool_call_info: ToolCall) -> ToolCallResult:
         tool = tool_manager.get_tool(tool_call_info.tool_name)
         args = tool_call_info.arguments
         try:
